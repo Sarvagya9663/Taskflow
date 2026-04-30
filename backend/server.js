@@ -12,22 +12,28 @@ app.use(cors({ origin: '*', credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes (loaded after DB init)
 function loadRoutes() {
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/projects', require('./routes/projects'));
   app.use('/api', require('./routes/tasks'));
   app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
-  // Serve frontend dist if it exists (always — no NODE_ENV check)
-  const dist = path.join(__dirname, '..', 'frontend', 'dist');
-  if (fs.existsSync(dist)) {
+  // Works both locally (node run from /backend) and on Railway (run from repo root)
+  // __dirname = /path/to/backend  →  ../frontend/dist  (local)
+  // __dirname = /app/backend      →  ../frontend/dist  (Railway with startCommand: node backend/server.js)
+  const distCandidate1 = path.join(__dirname, '..', 'frontend', 'dist');  // always correct
+  const distCandidate2 = path.join(process.cwd(), 'frontend', 'dist');    // fallback if cwd is repo root
+  const dist = fs.existsSync(distCandidate1) ? distCandidate1
+             : fs.existsSync(distCandidate2) ? distCandidate2
+             : null;
+
+  if (dist) {
     app.use(express.static(dist));
     app.get('*', (req, res) => res.sendFile(path.join(dist, 'index.html')));
     console.log('📦 Serving frontend from', dist);
   } else {
     console.log('⚠️  No frontend/dist found. Run: cd frontend && npm run build');
-    app.get('/', (req, res) => res.send('API running. Build the frontend first: cd frontend && npm run build'));
+    app.get('/', (req, res) => res.send('API is running — frontend not built yet.'));
   }
 
   app.use((err, req, res, next) => {
@@ -40,7 +46,6 @@ async function start() {
   try {
     await initDb();
 
-    // Auto-seed on first run
     const { getDb } = require('./db/database');
     const db = getDb();
     const count = db.prepare('SELECT COUNT(*) as c FROM users').get();
